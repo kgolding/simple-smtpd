@@ -21,7 +21,7 @@ Usage of ./smtpd:
 
 ### JSON Output
 
-Each message is pritned to stdos as a JSON string terminated with a `\n`.
+Each message is printed to stdout as a JSON string terminated with a `\n`.
 ```
 {
 	"to": "email@domain.com",
