@@ -31,7 +31,7 @@ func main() {
 	flag.BoolVar(&VERBOSE, "v", false, "verbose logging")
 	flag.IntVar(&port, "port", 25, "listening port")
 	flag.IntVar(&maxBody, "max", 256, "max body size KB")
-	flag.StringVar(&serverName, "name", "smcgateway", "server name")
+	flag.StringVar(&serverName, "name", "mail-server", "server name")
 
 	flag.Parse()
 
