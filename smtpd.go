@@ -1,20 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/mail"
 	"os"
-	"strconv"
-	"strings"
 
-	"github.com/alash3al/go-smtpsrv"
+	"github.com/DusanKasan/parsemail"
+	"github.com/kgolding/smtpd"
 )
 
-var VERSION string
 var VERBOSE bool
 
 func debug(format string, args ...interface{}) {
@@ -35,25 +33,14 @@ func main() {
 
 	flag.Parse()
 
-	debug("ssmtpd - a simple SMTP server to JSON output by Kevin Golding")
-	debug("Version: %s", VERSION)
+	debug("smtpd - a simple SMTP server to JSON output by Kevin Golding")
+	debug("Version: 1.1.0")
 
-	srv := &smtpsrv.Server{
-		Name:        serverName,
-		Addr:        ":" + strconv.Itoa(port),
-		MaxBodySize: int64(maxBody) * 1024,
-		Handler:     handleSmtpRequest,
-	}
-
-	debug("Starting SMTP server on %s, accepting messages with a maximum body size of %d bytes", srv.Addr, srv.MaxBodySize)
-
-	ln, err := net.Listen("tcp", srv.Addr)
+	debug("Starting SMTP server on port %d", port)
+	err := smtpd.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", port), mailHandler, serverName, "")
 	if err != nil {
 		printErrf("Unable to open port %d: %s", port, err)
 	}
-
-	err = srv.Serve(ln)
-	printErrf(err.Error())
 }
 
 func printErrf(f string, args ...interface{}) {
@@ -66,58 +53,34 @@ type Result struct {
 	Subject string `json:"subject,omitempty"`
 	Body    string `json:"body,omitempty"`
 	Html    string `json:"html,omitempty"`
+	Error   string `json:"errors,omitempty"`
 }
 
-func handleSmtpRequest(req *smtpsrv.Request) error {
+func mailHandler(origin net.Addr, from string, to []string, data []byte) {
+	msg, _ := mail.ReadMessage(bytes.NewReader(data))
+	subject := msg.Header.Get("Subject")
+	debug("Received mail from %s for %s with subject %s", from, to[0], subject)
+
 	result := Result{
-		From: req.From,
+		Subject: subject,
 	}
 
-	t, err := mail.ParseAddress(req.From)
+	t, err := mail.ParseAddress(from)
 	if err == nil {
 		result.From = t.Address
 	}
 
-	result.Subject = req.Message.Header.Get("Subject")
-
-	debug("Received email '%s' from %s to %s", result.Subject, req.From, req.To)
-
-	contentType, params, err := parseContentType(req.Message.Header.Get("Content-Type"))
+	mail, err := parsemail.Parse(bytes.NewReader(data))
 	if err != nil {
-		printErrf("Error getting content type: %s", err)
+		result.Error = err.Error()
+	} else {
+		result.Body = mail.TextBody
+		result.Html = mail.HTMLBody
 	}
 
-	switch contentType {
-	case contentTypeMultipartMixed:
-		// email.TextBody, email.HTMLBody, email.Attachments, email.EmbeddedFiles, err = parseMultipartMixed(msg.Body, params["boundary"])
-		result.Body, result.Html, _, _, err = parseMultipartMixed(req.Message.Body, params["boundary"])
-	case contentTypeMultipartAlternative:
-		result.Body, result.Html, _, err = parseMultipartAlternative(req.Message.Body, params["boundary"])
-	case contentTypeTextPlain:
-		message, _ := ioutil.ReadAll(req.Message.Body)
-		result.Body = strings.TrimSuffix(string(message[:]), "\n")
-	case contentTypeTextHtml:
-		message, _ := ioutil.ReadAll(req.Message.Body)
-		result.Html = strings.TrimSuffix(string(message[:]), "\n")
-	default:
-		b := []byte{}
-		b, err = ioutil.ReadAll(req.Message.Body)
-		if err == nil {
-			result.Body = string(b)
-			if strings.HasSuffix(result.Body, "\r\n.\r\n") {
-				result.Body = result.Body[0 : len(result.Body)-5]
-			}
-		}
-	}
-	if err != nil {
-		printErrf("Error decoding body: %s", err)
-	}
-
-	for _, To := range req.To {
-		result.To = To
+	for _, t := range to {
+		result.To = t
 		b, _ := json.Marshal(result)
 		fmt.Println(string(b))
 	}
-
-	return nil
 }
